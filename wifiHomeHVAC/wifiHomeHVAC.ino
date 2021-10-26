@@ -142,9 +142,9 @@ void setup() {
 
 //====MAIN LOOP==============================================
 void loop() {
-  // newtime = millis();
+  newtime = millis();
   server.handleClient();
-  if (millis() - oldtime > 5000) {
+  if ((newtime - oldtime) > 30000) {
       checkDHT11();
       manageRelays();
       oldtime = millis();
@@ -281,24 +281,41 @@ void manageRelays() {
 
 // DHT11 function
 void checkDHT11() {
+  int tempReceived = 0;
+  while (tempReceived < 4){
     // Reading temperature or humidity takes about 250 milliseconds!
     // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-    dhtHumid = dht.readHumidity();
+    float h = dht.readHumidity();
+    delay(300);
     // Read temperature as Celsius (the default)
     //float t = dht.readTemperature();
     // Read temperature as Fahrenheit (isFahrenheit = true)
-    dhtTemp = dht.readTemperature(true);
+    float t = dht.readTemperature(true);
     //Serial.println("dht temp ");
     //Serial.println(dhtTemp);
     // Check if any reads failed and exit early (to try again).
-    // if (isnan(h) || isnan(t) || isnan(f)) {
+    if (isnan(h) || isnan(t)){
     //Serial.println(F("Failed to read from DHT sensor!"));
     //  return;
-    //}
+      tempReceived = tempReceived + 1;
+      dhtTemp = 0.00;
+      dhtHumid = 0.0;
+      delay(2000);
+    }
+    else{
+      tempReceived = 10;
+      dhtHumid = h;
+      dhtTemp = t;
+    }
     // Compute heat index in Fahrenheit (the default)
     //float hif = dht.computeHeatIndex(f, h);
     // Compute heat index in Celsius (isFahreheit = false)
     //float hic = dht.computeHeatIndex(t, h, false);
+
+  }
+  if(tempReceived != 10){
+    allOff();
+  }
 }
 
 //===main page builder=========================
@@ -472,7 +489,7 @@ void changeConfig() {
     targetTemp = server.arg("temp").toFloat();
     if (ACorHeat == 1) {
         //heat
-        tempBuffer = 0.6;
+        tempBuffer = 0.5;
     } else if (ACorHeat == 2) {
         //ac
         tempBuffer = 0.3;
