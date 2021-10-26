@@ -1,21 +1,10 @@
 /*
-   changes: wifi credentials POST for security
-   ability to change wifi AP connection
-
-
-   connections: vcc&ch_pd -3.3v, gpio15 to ground, gnd to ground
-   to flash: gpio0 to ground on boot only
+   connections: vcc&ch_pd 3.3v, gpio15 to ground, gnd to ground
    serial rx,tx at 115200 baud
    ESP03:26MHz crystal, 1MB flash
-
-   to flash: click upload and when its trying to connect,
-   unplug esp8266, hold flash button, replug in
-
    pinMode(, OUTPUT/INPUT);pin# 1,3,15,13,12,14,2,0,4,5,16,9,10
    ADC0: analogRead(A0)
    interupt pins: D0-D8 = pin 16,5,4,
-
-   To Do:
 */
 #include <WiFiClient.h>
 #include <ESP8266WiFi.h>
@@ -40,19 +29,17 @@ String WIFI_PASS;
 //relay pins: use pins 12,13,14,15
 //old: pin0=12,pin1=13,pin2=14,pin3=5
 //new: pin0=5,pin1=13,pin2=12,pin3=14
-//fan
-const byte relayPin0 = 5;  //relay pin, D6
-byte relayState0 = HIGH;   //pin status logic, Low=ground=relay on
-//heat
+//fan -------------
+const byte relayPin0 = 5;  //relay pin, D6 | pin status logic, Low=ground=relay on
+//heat --------------
 const byte relayPin1 = 13;  //relay pin, D7
-byte relayState1 = HIGH;
-//ac
+//ac ---------------
 const byte relayPin2 = 12;  //relay pin, D5
-byte relayState2 = HIGH;
-//aux
-const byte relayPin3 = 14;  //relay pin, D1
-byte relayState3 = HIGH;
-//-----------------------
+//aux - DHT sensor relay ----------------
+const byte relayPin3 = 14;  //relay pin, D1 , connect sensor to always on relay position *****
+// extra pin-----------------------
+//const byte sensorPin = 4;  //mcu pin, D2
+//----------------------
 //AP config
 const String APssid = "HomeHVAC";
 const String APpswd = "1234567890";
@@ -72,8 +59,8 @@ float tempBuffer = 0.5;
 float upperLimit;
 float lowerLimit;
 byte pinState;
-//DHT sensor
-#define DHTPIN 2  //D4
+//DHT sensor -------------
+#define DHTPIN 2  // D4 on mcu
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 float dhtTemp = 0.0;
@@ -94,13 +81,13 @@ void setup() {
     digitalWrite(LEDpin, LEDstate);
     //-----outputs-----------------
     pinMode(relayPin0, OUTPUT);
-    digitalWrite(relayPin0, relayState0);  //pin start state
+    digitalWrite(relayPin0, HIGH);  //pin start state
     pinMode(relayPin1, OUTPUT);
-    digitalWrite(relayPin1, relayState1);  //pin start state
+    digitalWrite(relayPin1, HIGH);  //pin start state
     pinMode(relayPin2, OUTPUT);
-    digitalWrite(relayPin2, relayState2);  //pin start state
-    pinMode(relayPin3, OUTPUT);
-    digitalWrite(relayPin3, relayState3);  //pin start state
+    digitalWrite(relayPin2, HIGH);  //pin start state
+    pinMode(relayPin3, OUTPUT); // temp sensor
+    digitalWrite(relayPin3, HIGH);  //pin start state
     //-----
     delay(10);
     //-------serial--------------------------------
@@ -158,24 +145,20 @@ void allOff() {
     //fan off
     if (digitalRead(relayPin0) == LOW) {
         digitalWrite(relayPin0, HIGH);
-        relayState0 = HIGH;
     }
     //heat off
     if (digitalRead(relayPin1) == LOW) {
         digitalWrite(relayPin1, HIGH);
-        relayState1 = HIGH;
         lastOff = millis();
     }
     //ac off
     if (digitalRead(relayPin2) == LOW) {
         digitalWrite(relayPin2, HIGH);
-        relayState2 = HIGH;
         lastOff = millis();
     }
     //aux off
     if (digitalRead(relayPin3) == LOW) {
         digitalWrite(relayPin3, HIGH);
-        relayState3 = HIGH;
     }
 }
 
@@ -183,20 +166,19 @@ void allOff() {
 void acAndHeatoff() {
     if (digitalRead(relayPin1) == LOW) {
         digitalWrite(relayPin1, HIGH);
-        relayState1 = HIGH;
         lastOff = millis();
     }
     //ac off
     if (digitalRead(relayPin2) == LOW) {
         digitalWrite(relayPin2, HIGH);
-        relayState2 = HIGH;
         lastOff = millis();
     }
-    //aux off
+    /* aux off
     if (digitalRead(relayPin3) == LOW) {
         digitalWrite(relayPin3, HIGH);
         relayState3 = HIGH;
     }
+    */
 }
 
 //control relays
@@ -209,20 +191,18 @@ void manageRelays() {
         //if a/c is on -> turn off
         if (digitalRead(relayPin2) == LOW) {  
             digitalWrite(relayPin2, HIGH);
-            relayState2 = HIGH;
             lastOff = millis();
         }
+        // manage heat relay ---
         if (dhtTemp < lowerLimit) {
             //turn relay on
             if (digitalRead(relayPin1) == HIGH & millis() - lastOff > 300000) {
                 digitalWrite(relayPin1, LOW);
-                relayState1 = LOW;  //on
             }
         } else if (dhtTemp > upperLimit) {
             //turn relay off
             if (digitalRead(relayPin1) == LOW) {
                 digitalWrite(relayPin1, HIGH);
-                relayState1 = HIGH;  //off
                 lastOff = millis();
             }
         } else {
@@ -234,25 +214,23 @@ void manageRelays() {
         //if heat is on -> turn off
           if (digitalRead(relayPin1) == LOW) {  
               digitalWrite(relayPin1, HIGH);
-              relayState1 = HIGH;
               lastOff = millis();
           }
+          // manage a/c relay ----------------
           if (dhtTemp > upperLimit) {  // if temp is above limit -> ac on
               //turn relay on
               if (digitalRead(relayPin2) == HIGH & millis() - lastOff > 300000) {
                   digitalWrite(relayPin2, LOW); //on
-                  relayState2 = LOW;
               }
           } else if (dhtTemp < lowerLimit) {  // if temp is lower than limit -> ac off
               //turn relay off
               if (digitalRead(relayPin2) == LOW) {
                   digitalWrite(relayPin2, HIGH);  //off
-                  relayState2 = HIGH;
                   lastOff = millis();
               }
           } else {
               //do nothing
-              delay(10);
+              delay(100);
           }
           // -------------------------end of a/c
       } else {
@@ -262,19 +240,16 @@ void manageRelays() {
     } else {  //ac and heat are off
         ACorHeat = 0; //error catch in HVAC setup
         acAndHeatoff();
+        delay(100);
     }
     // fan control -------
     if (fanState == 1) {
-        //pinState = digitalRead(relayPin0);
         if (digitalRead(relayPin0) == HIGH) {
             digitalWrite(relayPin0, LOW);  //fan on
-            relayState0 = LOW;
         }
     } else {
-        //pinState = digitalRead(relayPin0);
         if (digitalRead(relayPin0) == LOW) {
             digitalWrite(relayPin0, HIGH);  //fan off
-            relayState0 = HIGH;
         }
     }
 }
@@ -295,29 +270,31 @@ void checkDHT11() {
     //Serial.println(dhtTemp);
     // Check if any reads failed and exit early (to try again).
     if (isnan(h) || isnan(t)){
-    //Serial.println(F("Failed to read from DHT sensor!"));
-    //  return;
+      if (tempReceived == 0){
+      resetDHTsensor();
+      }
+      dhtTemp = 00.00;
+      dhtHumid = 00.00;
       tempReceived = tempReceived + 1;
-      dhtTemp = 0.00;
-      dhtHumid = 0.0;
-      delay(2000);
+      delay(1000);
     }
     else{
       tempReceived = 10;
       dhtHumid = h;
       dhtTemp = t;
     }
-    // Compute heat index in Fahrenheit (the default)
-    //float hif = dht.computeHeatIndex(f, h);
-    // Compute heat index in Celsius (isFahreheit = false)
-    //float hic = dht.computeHeatIndex(t, h, false);
-
   }
+  // error catch if sensor dies
   if(tempReceived != 10){
     allOff();
   }
 }
-
+// -- reset DHT sensor by switching relay ---
+void resetDHTsensor() {
+    digitalWrite(relayPin3, LOW);
+    delay(400);
+    digitalWrite(relayPin3, HIGH);
+}
 //===main page builder=========================
 void htmlOutput() {
     String htmlRes;
@@ -364,28 +341,28 @@ void htmlOutput() {
     //WL_CONNECT_FAILED   = 4,WL_CONNECTION_LOST  = 5,WL_DISCONNECTED     = 6
 
     htmlRes += "</br>======================================</br>";
-    if (relayState0 == LOW) {
+    if (digitalRead(relayPin0) == LOW) {
         //fan is on
         htmlRes += " <big>fan is on</big><br/>";
     } else {
         //fan is off
         htmlRes += " <big>fan is off</big><br/>";
     }
-    if (relayState1 == LOW) {
+    if (digitalRead(relayPin1) == LOW) {
         //heat is on
         htmlRes += " <big>heat is on</big><br/>";
     } else {
         //heat is off
         htmlRes += " <big>heat is off</big><br/>";
     }
-    if (relayState2 == LOW) {
+    if (digitalRead(relayPin2) == LOW) {
         //ac is on
         htmlRes += " <big>A/C is on</big><br/>";
     } else {
         //ac is off
         htmlRes += " <big>A/C is off</big><br/>";
     }
-    if (relayState3 == LOW) {
+    if (digitalRead(relayPin3) == LOW) {
         //aux is on
         htmlRes += " <big>Aux is on</big><br/>";
     } else {
@@ -504,27 +481,23 @@ void changeConfig() {
 
 //-------manual relay control----------------------
 void relay0() {
-    relayState0 = !relayState0;
-    digitalWrite(relayPin0, relayState0);
-    server.send(200, "text/html", "relay0: " + String(relayState0) + "[0:off,1:on]");
+    digitalWrite(relayPin0, !digitalRead(relayPin0));
+    server.send(200, "text/html", "relay0: " + String(digitalRead(relayPin0)) + "[0:off,1:on]");
 }
 
 void relay1() {
-    relayState1 = !relayState1;
-    digitalWrite(relayPin1, relayState1);
-    server.send(200, "text/html", "relay1: " + String(relayState1) + "[0:off,1:on]");
+    digitalWrite(relayPin1, !digitalRead(relayPin1));
+    server.send(200, "text/html", "relay1: " + String(digitalRead(relayPin1)) + "[0:off,1:on]");
 }
 
 void relay2() {
-    relayState2 = !relayState2;
-    digitalWrite(relayPin2, relayState2);
-    server.send(200, "text/html", "relay2 " + String(relayState2) + "[0:off,1:on]");
+    digitalWrite(relayPin2, !digitalRead(relayPin2));
+    server.send(200, "text/html", "relay2 " + String(digitalRead(relayPin2)) + "[0:off,1:on]");
 }
 
 void relay3() {
-    relayState3 = !relayState3;
-    digitalWrite(relayPin3, relayState3);
-    server.send(200, "text/html", "relay3 " + String(relayState3) + "[0:off,1:on]");
+    digitalWrite(relayPin3, !digitalRead(relayPin3));
+    server.send(200, "text/html", "relay3 " + String(digitalRead(relayPin3)) + "[0:off,1:on]");
 }
 
 //===========================================================================
