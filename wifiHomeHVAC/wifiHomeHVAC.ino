@@ -72,8 +72,8 @@ byte timer = 0;
 const byte LEDpin = 16;  //onboard LED pin, LOW=ON
 // timer
 unsigned long oldtime = millis();
-unsigned long newtime = 0;
-unsigned long lastOff = 0;
+unsigned long newtime = 0.0;
+unsigned long lastOff = 0.0;
 //=========================================================
 void setup() {
     digitalWrite(LEDpin, LOW); // ON
@@ -198,7 +198,7 @@ void manageRelays() {
         // manage heat relay ---
         if (dhtTemp < lowerLimit) {
             //turn relay on
-            if (digitalRead(relayPin1) == HIGH & millis() - lastOff > 300000) {
+            if (digitalRead(relayPin1) == HIGH & millis() - lastOff > 300000) { //5 min
                 digitalWrite(relayPin1, LOW);
             }
         } else if (dhtTemp > upperLimit) {
@@ -262,12 +262,12 @@ void checkDHT11() {
   while (tempReceived < 4){
     // Reading temperature or humidity takes about 250 milliseconds!
     // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-    float h = dht.readHumidity();
+    float t = dht.readTemperature(true);
     delay(300);
+    float h = dht.readHumidity();
     // Read temperature as Celsius (the default)
     //float t = dht.readTemperature();
     // Read temperature as Fahrenheit (isFahrenheit = true)
-    float t = dht.readTemperature(true);
     //Serial.println("dht temp ");
     //Serial.println(dhtTemp);
     // Check if any reads failed and exit early (to try again).
@@ -284,11 +284,6 @@ void checkDHT11() {
       dhtTemp = t;
     }
   }
-  /* error catch if sensor dies
-  if(tempReceived != 10){
-    allOff();
-  }
-  */
 }
 // -- reset DHT sensor by switching relay ---
 void resetDHTsensor() {
@@ -479,7 +474,21 @@ void changeConfig() {
     fanState = server.arg("fanState").toInt();
     htmlOutput();
 }
-
+void jsonData(){
+  String output = "{";
+  output += "\"ACorHeat\":\"" + String(ACorHeat) +"\",";
+  output += "\"fanState\":\"" + String(fanState) +"\",";
+  output += "\"targetTemp\":\"" + String(targetTemp, 2) +"\",";
+  output += "\"dhtTemp\":\"" + String(dhtTemp, 2) +"\",";
+  output += "\"dhtHumid\":\"" + String(dhtHumid, 2) +"\",";
+  output += "\"relayPin0\":\"" + String(digitalRead(relayPin0)) +"\",";
+  output += "\"relayPin1\":\"" + String(digitalRead(relayPin1)) +"\",";
+  output += "\"relayPin2\":\"" + String(digitalRead(relayPin2)) +"\",";
+  output += "\"relayPin3\":\"" + String(digitalRead(relayPin3)) +"\",";
+  output += "\"lastOff\":\"" + String(lastOff,2) +"\"";
+  output +="}";
+  server.send(200, "application/json", output);
+}
 //-------manual relay control----------------------
 void relay0() {
     digitalWrite(relayPin0, !digitalRead(relayPin0));
@@ -539,6 +548,7 @@ void connectWifi() {
     server.on("/relay1", HTTP_GET, relay1);
     server.on("/relay2", HTTP_GET, relay2);
     server.on("/relay3", HTTP_GET, relay3);
+    server.on("/api0"), HTTP_GET, jsonData);
     server.begin();
     //Serial.println("server turned on");
 }
