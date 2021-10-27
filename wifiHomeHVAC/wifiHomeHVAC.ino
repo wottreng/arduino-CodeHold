@@ -69,22 +69,20 @@ float dhtHumid = 0.0;
 //misc
 byte x = 0;
 byte timer = 0;
-const byte LEDpin = 16;  //onboard LED pin
-byte LEDstate;           //LED pin status logic, LOW=ON
+const byte LEDpin = 16;  //onboard LED pin, LOW=ON
 // timer
 unsigned long oldtime = millis();
 unsigned long newtime = 0;
 unsigned long lastOff = 0;
 //=========================================================
 void setup() {
-    LEDstate = LOW;  //on
-    digitalWrite(LEDpin, LEDstate);
+    digitalWrite(LEDpin, LOW); // ON
     //-----outputs-----------------
-    pinMode(relayPin0, OUTPUT);
+    pinMode(relayPin0, OUTPUT); // fan
     digitalWrite(relayPin0, HIGH);  //pin start state
-    pinMode(relayPin1, OUTPUT);
+    pinMode(relayPin1, OUTPUT); // heat
     digitalWrite(relayPin1, HIGH);  //pin start state
-    pinMode(relayPin2, OUTPUT);
+    pinMode(relayPin2, OUTPUT); // a/c
     digitalWrite(relayPin2, HIGH);  //pin start state
     pinMode(relayPin3, OUTPUT); // temp sensor
     digitalWrite(relayPin3, HIGH);  //pin start state
@@ -113,7 +111,7 @@ void setup() {
         WIFI_PASS += char(a);
     }
     //start DHT11 sensor
-    delay(10);
+    delay(100);
     dht.begin();
     //temp range setup
     upperLimit = targetTemp + tempBuffer;
@@ -122,9 +120,8 @@ void setup() {
     //try to connect to wifi based on eeprom read cred
     delay(10);
     connectWifi();
-    allOff();
-    LEDstate = HIGH;  //off
-    digitalWrite(LEDpin, LEDstate);
+    //allOff();
+    digitalWrite(LEDpin, HIGH); //OFF
 }
 
 //====MAIN LOOP==============================================
@@ -186,7 +183,12 @@ void manageRelays() {
     //relay0=fan,relay1=heat,relay2=ac,relay3=aux
     //onTemp, offTemp, ACorHeat, fanState
     //dhtHumid, dhtTemp
-    if (ACorHeat > 0) {   //ac or heat on       
+    if (ACorHeat > 0) {   //ac or heat on
+       //error handling
+       if (isnan(dhtHumid) || isnan(dhtTemp)){
+            allOff();
+            return;
+       }
       if (ACorHeat == 1) { //heat selected
         //if a/c is on -> turn off
         if (digitalRead(relayPin2) == LOW) {  
@@ -271,12 +273,10 @@ void checkDHT11() {
     // Check if any reads failed and exit early (to try again).
     if (isnan(h) || isnan(t)){
       if (tempReceived == 0){
-      resetDHTsensor();
+        resetDHTsensor();
       }
-      dhtTemp = 00.00;
-      dhtHumid = 00.00;
       tempReceived = tempReceived + 1;
-      delay(1000);
+      delay(500);
     }
     else{
       tempReceived = 10;
@@ -284,15 +284,16 @@ void checkDHT11() {
       dhtTemp = t;
     }
   }
-  // error catch if sensor dies
+  /* error catch if sensor dies
   if(tempReceived != 10){
     allOff();
   }
+  */
 }
 // -- reset DHT sensor by switching relay ---
 void resetDHTsensor() {
     digitalWrite(relayPin3, LOW);
-    delay(400);
+    delay(800);
     digitalWrite(relayPin3, HIGH);
 }
 //===main page builder=========================
@@ -547,7 +548,6 @@ void connectWifi() {
 /*void wifiNotConnected() {
     x = 0;
     while (x < 10) {
-        LEDstate = !LEDstate;
         digitalWrite(LEDpin, LEDstate);
         delay(250);
         x += 1;
