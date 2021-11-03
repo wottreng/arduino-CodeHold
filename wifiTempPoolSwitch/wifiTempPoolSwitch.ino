@@ -1,16 +1,7 @@
 /*
-   connections: vcc&ch_pd -3.3v, gpio15 to ground, gnd to ground
-   to flash: gpio0 to ground on boot only
-   serial rx,tx at 115200 baud
-   ESP03:26MHz crystal, 1MB flash
-
-   to flash: click upload and when its trying to connect,
-   unplug esp8266, hold flash button, replug in
-
    pinMode(, OUTPUT/INPUT);pin# 1,3,15,13,12,14,2,0,4,5,16,9,10
    ADC0: analogRead(A0)
    interupt pins: D0-D8 = pin 16,5,4,
-
 */
 #include <WiFiClient.h>
 #include <ESP8266WiFi.h>

@@ -1,7 +1,4 @@
 /*
-   connections: vcc&ch_pd 3.3v, gpio15 to ground, gnd to ground
-   serial rx,tx at 115200 baud
-   ESP03:26MHz crystal, 1MB flash
    pinMode(, OUTPUT/INPUT);pin# 1,3,15,13,12,14,2,0,4,5,16,9,10
    ADC0: analogRead(A0)
    interupt pins: D0-D8 = pin 16,5,4,
@@ -14,21 +11,14 @@
 #include <DallasTemperature.h>
 #include "DHT.h"
 
-//int conStatus = WL_IDLE_STATUS;
-//const char ssid1 = "admin";
-//const char pswd1 = "1234567890";
 //const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 1, 1);
 //DNSServer dnsServer;
 ESP8266WebServer server(80);  //listens for incoming tcp traffic
-//=============================================================
-// Set client WiFi credentials **needs eeprom write/read**
+//=============
 String WIFI_SSID;
 String WIFI_PASS;
-//===============================================================
-//relay pins: use pins 12,13,14,15
-//old: pin0=12,pin1=13,pin2=14,pin3=5
-//new: pin0=5,pin1=13,pin2=12,pin3=14
+//================
 //fan -------------
 const byte relayPin0 = 5;  //relay pin, D6 | pin status logic, Low=ground=relay on
 //heat --------------
@@ -37,8 +27,6 @@ const byte relayPin1 = 13;  //relay pin, D7
 const byte relayPin2 = 12;  //relay pin, D5
 //aux - DHT sensor relay ----------------
 const byte relayPin3 = 14;  //relay pin, D1 , connect sensor to always on relay position *****
-// extra pin-----------------------
-//const byte sensorPin = 4;  //mcu pin, D2
 //----------------------
 //AP config
 const String APssid = "HomeHVAC";
@@ -68,7 +56,7 @@ float dhtHumid = 0.0;
 // 10K resistor from pin 2 (data) to pin 1 (power) of the sensor
 //misc
 byte x = 0;
-byte timer = 0;
+//byte timer = 0;
 const byte LEDpin = 16;  //onboard LED pin, LOW=ON
 // timer
 unsigned long oldtime = millis();
@@ -76,6 +64,8 @@ unsigned long newtime = 0.0;
 unsigned long lastOff = 0.0;
 //=========================================================
 void setup() {
+    pinMode(LEDpin, OUTPUT);
+    delay(100);
     digitalWrite(LEDpin, LOW); // ON
     //-----outputs-----------------
     pinMode(relayPin0, OUTPUT); // fan
@@ -548,7 +538,7 @@ void connectWifi() {
     server.on("/relay1", HTTP_GET, relay1);
     server.on("/relay2", HTTP_GET, relay2);
     server.on("/relay3", HTTP_GET, relay3);
-    server.on("/api0"), HTTP_GET, jsonData);
+    server.on("/api0", HTTP_GET, jsonData);
     server.begin();
     //Serial.println("server turned on");
 }

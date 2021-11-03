@@ -1,0 +1,152 @@
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta http-equiv="refresh" content="8000; url='/'"  />
+</head>
+<script type="text/JavaScript">
+    function timeRefresh(timeoutPeriod) {
+    setTimeout("location.reload(true);", timeoutPeriod);
+    }
+</script>
+<style>
+    body {
+        position: relative;
+        top: 0;
+        left: 0;
+        color: white;
+        background-color: transparent;
+        height: calc(100vh - 10px);
+        width: calc(100vw - 10px);
+        border: #ffffff solid 5px;
+        border-radius: 20px;
+        margin: 0;
+        padding: 0;
+        z-index: 0;
+    }
+    .flexContainer {
+        background-image: linear-gradient(180deg, #18453B, black);
+        z-index: 1;
+        position: relative;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        text-align: center;
+        align-items: center;
+        align-content: center;
+        flex-wrap: nowrap;
+        flex-direction: column;
+        overflow-y: scroll;
+        font-weight: bold;
+    }
+
+    .title {
+        padding: 10px;
+        font-size: x-large;
+    }
+
+    .subTitle {
+        padding: 5px;
+        font-size: large;
+    }
+
+    .subFlexBlock {
+        z-index: 2;
+        font-size: large;
+        position: relative;
+        left: 0;
+        margin: 0;
+        margin-bottom: 10px;
+        padding: 10px;
+        width: 100%;
+        max-width: 300px;
+        height: auto;
+        display: flex;
+        flex-direction: column;
+        text-align: center;
+        align-items: center;
+        align-content: center;
+    }
+
+    .greenBorder {
+        background-color: black;
+        color: white;
+        width: 90%;
+        border: #18453B solid 6px;
+        border-radius: 20px;
+    }
+
+    .whiteBorder {
+        background-color: #818181;
+        color: #18453B;
+        width: 80%;
+        border: #ffffff solid 6px;
+        border-radius: 20px;
+    }
+
+    .blackBorder {
+        background-color: #18453B;
+        color: white;
+        width: 85%;
+        border: #000000 solid 6px;
+        border-radius: 20px;
+    }
+
+    .textBlocks {
+        font-size: large;
+        text-align: center;
+        align-content: center;
+        align-items: center;
+        padding: 2px;
+        margin: 0;
+    }
+
+    button {
+        margin: 0;
+        font-size: large;
+        padding: 5px 10px 5px 10px;
+        color: #b4b4b4;
+        background-color: black;
+        border-radius: 10px;
+        border: #18453B solid 4px;
+        text-decoration: underline #b4b4b4;
+    }
+    .greyText{
+        color: #b4b4b4;
+    }
+</style>
+<body>
+<div class="flexContainer">
+    <div class="title greyText">Kujawa Baby Baker 3000</div>
+    <div class="subTitle">Wifi Temperature Switch</div>
+    <div class="subFlexBlock greenBorder">
+        <p class="textBlocks greyText">ROOM STATUS:</p>
+        <p class="textBlocks">Humidity: 0.00%</p>
+        <p class="textBlocks">Temp: 0.00F</p>
+        <p class="textBlocks">Heat Index: 0.00F</p>
+    </div>
+    <div class="subFlexBlock greenBorder">
+        <p class="textBlocks greyText">ROOM SETTINGS:</p>
+        <p class="textBlocks">relay on temp: 69.00 F</p>
+        <p class="textBlocks">relay off temp: 70.00 F</p>
+        <p class="textBlocks">relay is <b>OFF</b></p>
+    </div>
+    <div class="subFlexBlock whiteBorder">
+        <a href="tempRelaySetup"><button style="display: block;">Change Room Settings</button></a>
+    </div>
+    <div class="subFlexBlock blackBorder">
+        <p class="textBlocks">Manual Switch Control:</p><a href="relay1"><button style="display: block;"><big> ON / OFF </big></button></a>
+    </div>
+    </br></br></br></br></br></br></br></br>
+    <div class="subFlexBlock greenBorder">
+        Connected to AP:&nbsp <b>PoolParty2G</b></br>
+        local IP:&nbsp<b>10.42.0.157</b>
+    </div>
+    <div class="subFlexBlock whiteBorder">
+        <span class="textBlocks">Change Wifi Access Point: </span><a href="APsetup"><button style="display: block;">Wifi Setup</button></a>
+    </div>
+    <p>Version 1.0</p>
+</div>
+</body>
+</html>
