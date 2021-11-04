@@ -6,34 +6,37 @@
    interupt pins: D0-D8 = pin 16,5,4,
 
 */
-#include <WiFiClient.h>
 #include <ESP8266WiFi.h>
+#include <WiFiClient.h>
 #include <ESP8266WebServer.h>
-//#include <ESP8266mDNS.h>
+#include <ESP8266mDNS.h>
 #include <EEPROM.h>
-#include "DHT.h"
+#include <DHT.h>
 
-//int conStatus = WL_IDLE_STATUS;
-//const char ssid1 = "admin";
-//const char pswd1 = "1234567890";
 //const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 1, 1);
 //DNSServer dnsServer;
 ESP8266WebServer server(80);//listens for incoming tcp traffic
+String hostName = "bb3000";
 //=======
 String WIFI_SSID;
 String WIFI_PASS;
+// == EEPROM ==
+byte onTempLoc = 100;
+byte offTempLoc = 120;
+byte wifiSSIDloc  = 0;
+byte wifiPSWDloc = 20;
 //======
 //relay & LED config
 const byte relayPin = 5;//relay pin, D1
 const byte LEDpin = 16; //LED pin,  LOW=ON
 //AP config
-const String APssid = "BabyBaker3000";
+const String APssid = "BB3000";
 const String APpswd = "123456789";
 byte chan = 10; // wifi channel
 const int hidden = false;
 byte max_con = 4;
-const byte maxTry = 30;//try this many times to connect
+const byte maxTry = 10;//try this many times to connect
 // TEMP SENSOR Relay
 float onTemp = 0.0;
 float offTemp = 1.0;
@@ -68,27 +71,33 @@ void setup() {
   //WiFi.softAP(APssid, APpswd, chan, hidden, max_con);
   //read wifi creds from eeprom---------------------
   EEPROM.begin(512);//eeprom is 512bytes in size
-  delay(100);
-  WIFI_SSID = read_eeprom(0); //string
-  WIFI_PASS = read_eeprom(100);
-  String rawOnTemp = read_eeprom(200);
-  String rawOffTemp = read_eeprom(250);
+  delay(10);
+  WIFI_SSID = read_eeprom(wifiSSIDloc); //string
+  delay(10);
+  WIFI_PASS = read_eeprom(wifiPSWDloc);
+  delay(10);
+  String rawOnTemp = read_eeprom(onTempLoc);
+  delay(10);
+  String rawOffTemp = read_eeprom(offTempLoc);
+  delay(10);
   onTemp = rawOnTemp.toFloat();
   offTemp = rawOffTemp.toFloat();
   //start DHT11 sensor
-  delay(100);
+  delay(10);
   dht.begin();
   //-----connect to WiFi station-------------------
   //try to connect to wifi based on eeprom read cred
-  delay(100);
+  delay(10);
   connectWifi();
-  //MDNS.begin("wifiTempSwitch");
+  MDNS.begin("wifiTempSwitch");
  //digitalWrite(LEDpin, HIGH); //off
 }
 //==================================================
 void loop() {
   server.handleClient();
-
+  if ((millis()-oldtime > 5000)){
+      MDNS.update();
+  }
   if ((millis()-oldtime)>20000) { //nodemcu is very slow to output page
     checkDHT11();
     manageRelay();
@@ -101,20 +110,16 @@ void loop() {
 //control relay
 void manageRelay() {
   if (!tempReadError){
-    if (dhtTemp < onTemp) {
+    if(dhtTemp < onTemp) {
     //turn relay on
     digitalWrite(relayPin, HIGH); //on
     digitalWrite(LEDpin, LOW); //ON
-  }
-  else if (dhtTemp > offTemp) {
-    //turn relay off
-    digitalWrite(relayPin, LOW); //off
-    digitalWrite(LEDpin, HIGH); //off
-  }
-  else {
-    //do nothing
-    delay(10);
-  }
+    }
+    if(dhtTemp > offTemp) {
+      //turn relay off
+      digitalWrite(relayPin, LOW); //off
+      digitalWrite(LEDpin, HIGH); //off
+    }
   }else{
     digitalWrite(LEDpin, LOW); //ON
     digitalWrite(relayPin, LOW); // OFF
@@ -149,7 +154,10 @@ void APsetup() {
   String setuphtml = "<!DOCTYPE HTML><html><head>"
                      "<title>ESP Input Form</title>"
                      "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-                     "</head><body><p>current wifi AP SSID: &nbsp <b>" + WIFI_SSID +  "</b></p>"
+                     "</head>"
+                     "<body>"
+                     "<p>current wifi AP SSID: &nbsp <b>" + WIFI_SSID +  "</b></p>"
+                     "<p>current wifi AP pwd: &nbsp <b>" + WIFI_PASS +  "</b></p>"
                      "<form action=\"/input\" method=\"POST\">"
                      " Wifi ssid :</br>"
                      " <input type=\"text\" name=\"wifi SSID\" value=\"enter wifi name\">"
@@ -167,8 +175,8 @@ void APsetup() {
 void changeAP() {
   WIFI_SSID = server.arg("wifi SSID");
   WIFI_PASS = server.arg("password"); //string
-  writeToEEPROM(WIFI_SSID,0);
-  writeToEEPROM(WIFI_PASS,100);  
+  writeToEEPROM(WIFI_SSID,wifiSSIDloc);
+  writeToEEPROM(WIFI_PASS,wifiPSWDloc);  
 
   String s = "<meta http-equiv=\"refresh\" content=\"30; url='/'\" />"
              "<body> trying to connect to new wifi connection </br> "
@@ -176,9 +184,7 @@ void changeAP() {
              "please wait a minute then click below to go to main page</body>"
              "<br/><p>click to go back to main page:&nbsp <a href=\"/\"><button style=\"display: block;\">AP Main Page</button></a>";
   server.send(200, "text/html", s); //Send web page
-  delay(200);
   server.stop();
-  delay(5);
   connectWifi();
 }
 //==========================================================
@@ -212,25 +218,26 @@ void changeConfig() {
   String rawOffTemp = server.arg("offTemp");
   onTemp = rawOnTemp.toFloat();
   offTemp = rawOffTemp.toFloat();
-  writeToEEPROM(rawOnTemp, 200);
-  writeToEEPROM(rawOffTemp, 250);
-
   if(onTemp > offTemp){
     onTemp = 69.0;
     offTemp = 70.0;
-  }  
+  } else{
+    writeToEEPROM(rawOnTemp, onTempLoc);
+    writeToEEPROM(rawOffTemp, offTempLoc);
+  }
   MainPageBuilder();
 }
 //===========================================================================
 //===connect to wifi function===================================================
 void connectWifi() {
-  WiFi.mode(WIFI_STA);
-  delay(100);
+  //server.stop();
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.hostname(hostName.c_str());
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   int x = 0;
   while (x <= maxTry) {
-    delay(100);
-    Serial.print(".");
+    delay(500);
+    //Serial.print(".");
     x += 1;
     if (WiFi.status() == WL_CONNECTED) {
         WiFi.mode(WIFI_STA);  //WIFI_AP_STA dual mode
@@ -238,14 +245,14 @@ void connectWifi() {
         digitalWrite(LEDpin, HIGH); //off
     }
     if (WiFi.status() != WL_CONNECTED && x == maxTry) {
-        WiFi.mode(WIFI_AP);
+        WiFi.mode(WIFI_AP_STA);
         WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));//#
         WiFi.softAP(APssid, APpswd, chan, hidden, max_con);
-        delay(100);
-        digitalWrite(LEDpin, LOW); //off
+        digitalWrite(LEDpin, LOW); //on
     }
   }
-  delay(100);
+  MDNS.begin("bb3000");
+
   //------server--------------------
   server.onNotFound(notFound);// after ip address /
   server.on("/", HTTP_GET, MainPageBuilder);
@@ -257,6 +264,7 @@ void connectWifi() {
   server.on("/api0", HTTP_GET, jsonData);
   server.begin();
   //Serial.println("server turned on");
+  MDNS.addService("http", "tcp", 80);
 }
 //==========================================
 void jsonData(){
@@ -290,14 +298,13 @@ void notFound() { //when stuff after / is incorrect
              "<body> not a know page for ESP server </br> you will be directed automaticly or click button below to be redirected to main page</br>"
              "<br/><p>click to go back to main page:&nbsp <a href=\"/\"><button style=\"display: block;\">AP Main Page</button></a>";
   server.send(200, "text/html", s); //Send web page
-  //delay(2000);
   //htmlOutput();//redirect back to main page (doesnt work)
 }
 // -----------------
 void MainPageBuilder(){
 String html = "";
-html += "<html>";
-html += "<head>";
+html += "<html>"
+        "<head>";
 html += "<meta name='viewport' content='width=device-width, initial-scale=1'/>";
 html += "<meta http-equiv='refresh' content='15; url=\"/\"'/>";
 html += "</head>";
@@ -402,10 +409,10 @@ html += "color: #b4b4b4;";
 html += "}";
 html += "</style>";
 html += "<body>";
-html += "<div class='flexContainer'>";
-html += "<div class='title greyText'>Kujawa Baby Baker 3000</div>";
-html += "<div class='subTitle'>Wifi Temperature Switch</div>";
-html += "<div class='subFlexBlock greenBorder'>";
+html += "<div class='flexContainer'>"
+"<div class='title greyText'>Kujawa Baby Baker 3000</div>"
+"<div class='subTitle'>Wifi Temperature Switch</div>"
+"<div class='subFlexBlock greenBorder'>";
 html += "<p class='textBlocks greyText'>ROOM STATUS:</p>";
 html += "<p class='textBlocks'>Humidity: " + String(dhtHumid, 2) + "%</p>";
 html += "<p class='textBlocks'>Temp: " + String(dhtTemp, 2) + " F</p>";
@@ -438,8 +445,9 @@ if (conStatus == 0) {
     html += "Wifi connection is Idle</br>";
   }
   else if (conStatus == 3) {//connected
-  html += "Connected to AP:&nbsp <b>"+ WIFI_SSID +"</b></br>";
-  html += "local IP:&nbsp<b>" + WiFi.localIP().toString() + "</b>";
+  html += "Connected to AP:&nbsp <b>"+ WIFI_SSID +"</b></br>"
+          "local IP:&nbsp<b>" + WiFi.localIP().toString() + "</b></br>"
+          "Connection Strength: <b>"+ WiFi.RSSI() + " dbm</b>";
   }
   else if (conStatus == 1) {//not connected
     html += "Not connected to internet</br> Can not connect to AP:&nbsp<b>" + WIFI_SSID +  "</b></br>";
@@ -463,7 +471,6 @@ html += "</html>";
  server.send(200, "text/html", html);
 }
 
-// EEPROM commands =====================================================
 // EEPROM commands =====================================================
 void writeToEEPROM(String data,int address){
   byte dataLength = data.length();
