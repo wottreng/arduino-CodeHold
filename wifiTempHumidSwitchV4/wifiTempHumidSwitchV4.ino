@@ -1,4 +1,7 @@
 /*
+DUAL temp sensor, relay module
+
+ota README: https://github.com/esp8266/Arduino/tree/master/doc/ota_updates#web-browser
 	temperature wifi switch
 	
    pinMode(, OUTPUT/INPUT);pin# 1,3,15,13,12,14,2,0,4,5,16,9,10
@@ -9,46 +12,56 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
 #include <EEPROM.h>
 #include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <ESP8266mDNS.h>
+#include <ESP8266HTTPUpdateServer.h>
 
 //const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 1, 1);
-//DNSServer dnsServer;
-ESP8266WebServer server(80);//listens for incoming tcp traffic
-String hostName = "bb3000";
+//
+ESP8266WebServer httpServer(80);
+ESP8266HTTPUpdateServer httpUpdater;
+const String hostName = "bb3002";
 //=======
 String WIFI_SSID;
 String WIFI_PASS;
 // == EEPROM ==
-byte onTempLoc = 100;
-byte offTempLoc = 120;
-byte wifiSSIDloc  = 0;
-byte wifiPSWDloc = 20;
+const byte onTempLoc = 100;
+const byte offTempLoc = 120;
+const byte wifiSSIDloc  = 0;
+const byte wifiPSWDloc = 20;
 //======
 //relay & LED config
-const byte relayPin = 5;//relay pin, D1
+const byte relayPin = 12;//relay pin, D6
 const byte LEDpin = 16; //LED pin,  LOW=ON
 //AP config
-const String APssid = "BB3000";
+const String APssid = hostName;
 const String APpswd = "123456789";
-byte chan = 10; // wifi channel
-const int hidden = false;
-byte max_con = 4;
+int chan = 10; // wifi channel
+int hidden = false;
+int max_con = 4;
 const byte maxTry = 10;//try this many times to connect
 // TEMP SENSOR Relay
 float onTemp = 0.0;
 float offTemp = 1.0;
+// GPIO where the DS18B20 is connected to
+const byte oneWireBus = 4; //D2
+float ds18Temp = 0.0;
+OneWire oneWire(oneWireBus);
+DallasTemperature sensors(&oneWire);
 //DHT sensor
-#define DHTPIN 13 // D7
-#define DHTTYPE DHT22 // white
+#define DHTPIN 2 // D4
+#define DHTTYPE DHT11 // blue
 DHT dht(DHTPIN, DHTTYPE);
 byte tempReadError = false;
 float dhtTemp = 0.0;
 float dhtHumid = 0.0;
 float hif = 0.0;
 // 10K resistor from data pin to power pin of the sensor?
+byte whichSensor = 0; //0=dht,1=ds18b20, 2=both
 // timer
 unsigned long oldtime = 0.0;
 //=========================================================
@@ -63,8 +76,8 @@ void setup() {
   digitalWrite(LEDpin, LOW); //LED pin start state, LOW = ON
   delay(10);
   //-------serial--------------------------------
-  //Serial.begin(9600); //***************************
-  //delay(100);
+  //Serial.begin(115200); //***************************
+  //delay(10);
   //------sta setup---------------------------------
   //WiFi.mode(WIFI_AP);//WIFI_AP_STA dual mode
   //WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));//#
@@ -82,6 +95,9 @@ void setup() {
   delay(10);
   onTemp = rawOnTemp.toFloat();
   offTemp = rawOffTemp.toFloat();
+  // Start the DS18B20 sensor
+  delay(100);
+  sensors.begin();
   //start DHT11 sensor
   delay(10);
   dht.begin();
@@ -89,16 +105,14 @@ void setup() {
   //try to connect to wifi based on eeprom read cred
   delay(10);
   connectWifi();
-  MDNS.begin("wifiTempSwitch");
- //digitalWrite(LEDpin, HIGH); //off
 }
 //==================================================
 void loop() {
-  server.handleClient();
-  if ((millis()-oldtime > 5000)){
-      MDNS.update();
-  }
+  httpServer.handleClient();
+  MDNS.update();
+
   if ((millis()-oldtime)>20000) { //nodemcu is very slow to output page
+    checkDS18B20();
     checkDHT11();
     manageRelay();
     oldtime = millis();
@@ -137,6 +151,11 @@ void checkDHT11() {
     tempReadError = false;
   }
 }
+//check ds18b20
+void checkDS18B20() {
+  sensors.requestTemperatures();
+  ds18Temp = sensors.getTempFByIndex(0);
+}
 //======change pin state for output================================================
 void switchprog() {
   if (digitalRead(relayPin) == LOW) {
@@ -169,12 +188,12 @@ void APsetup() {
                      "</form> "
                      "</body></html>";
   String htmlConfig = setuphtml;
-  server.send(200, "text/html", htmlConfig);//send string to browser
+  httpServer.send(200, "text/html", htmlConfig);//send string to browser
 }
 // This routine is executed when you change wifi AP
 void changeAP() {
-  WIFI_SSID = server.arg("wifi SSID");
-  WIFI_PASS = server.arg("password"); //string
+  WIFI_SSID = httpServer.arg("wifi SSID");
+  WIFI_PASS = httpServer.arg("password"); //string
   writeToEEPROM(WIFI_SSID,wifiSSIDloc);
   writeToEEPROM(WIFI_PASS,wifiPSWDloc);  
 
@@ -183,8 +202,8 @@ void changeAP() {
              "if connection is successful you will be disconnected from soft AP</br>"
              "please wait a minute then click below to go to main page</body>"
              "<br/><p>click to go back to main page:&nbsp <a href=\"/\"><button style=\"display: block;\">AP Main Page</button></a>";
-  server.send(200, "text/html", s); //Send web page
-  server.stop();
+  httpServer.send(200, "text/html", s); //Send web page
+  httpServer.stop();
   connectWifi();
 }
 //==========================================================
@@ -210,12 +229,12 @@ void tempRelaySetup() {
                      "</form> "
                      "</body></html>";
   String htmlConfig = setuphtml;
-  server.send(200, "text/html", htmlConfig);//send string to browser
+  httpServer.send(200, "text/html", htmlConfig);//send string to browser
 }
 //POST change relay temp values
 void changeConfig() {
-  String rawOnTemp = server.arg("onTemp"); //String
-  String rawOffTemp = server.arg("offTemp");
+  String rawOnTemp = httpServer.arg("onTemp"); //String
+  String rawOffTemp = httpServer.arg("offTemp");
   onTemp = rawOnTemp.toFloat();
   offTemp = rawOffTemp.toFloat();
   if(onTemp > offTemp){
@@ -251,19 +270,20 @@ void connectWifi() {
         digitalWrite(LEDpin, LOW); //on
     }
   }
-  MDNS.begin("bb3000");
+  MDNS.begin(hostName.c_str());
 
   //------server--------------------
-  server.onNotFound(notFound);// after ip address /
-  server.on("/", HTTP_GET, MainPageBuilder);
-  server.on("/relay1", HTTP_GET, switchprog);
-  server.on("/APsetup", HTTP_GET, APsetup);
-  server.on("/input", HTTP_POST, changeAP); 
-  server.on("/tempRelaySetup", HTTP_GET, tempRelaySetup);
-  server.on("/relaySetup", HTTP_POST, changeConfig); //secure
-  server.on("/api0", HTTP_GET, jsonData);
-  server.begin();
-  //Serial.println("server turned on");
+  httpServer.onNotFound(notFound);// after ip address /
+  httpServer.on("/", HTTP_GET, MainPageBuilder);
+  httpServer.on("/relay1", HTTP_GET, switchprog);
+  httpServer.on("/APsetup", HTTP_GET, APsetup);
+  httpServer.on("/input", HTTP_POST, changeAP); 
+  httpServer.on("/tempRelaySetup", HTTP_GET, tempRelaySetup);
+  httpServer.on("/relaySetup", HTTP_POST, changeConfig); //secure
+  httpServer.on("/api0", HTTP_GET, jsonData);
+
+  httpUpdater.setup(&httpServer);
+  httpServer.begin();
   MDNS.addService("http", "tcp", 80);
 }
 //==========================================
@@ -272,6 +292,7 @@ void jsonData(){
   output += "\"dhtTemp\":\"" + String(dhtTemp, 2) +"\",";
   output += "\"dhtHumid\":\"" + String(dhtHumid, 2) +"\",";
   output += "\"heatIndex\":\"" + String(hif, 2) +"\",";
+  output += "\"ds18b20Temp\":\"" + String(ds18Temp, 2) +"\",";  
   output += "\"onTemp\":\"" + String(onTemp, 2) +"\",";
   output += "\"offTemp\":\"" + String(offTemp, 2) +"\",";
    if (digitalRead(LEDpin)){
@@ -283,21 +304,21 @@ void jsonData(){
   }
   if (digitalRead(relayPin)){
     // 1 -> on
-    output += "\"relayPinStatus\":\"on\"";
+    output += "\"relayStatus\":\"on\"";
   }else{
     // 0 -> off
-    output += "\"relayPinStatus\":\"off\"";
+    output += "\"relayStatus\":\"off\"";
   }
   
   output +="}";
-  server.send(200, "application/json", output);
+  httpServer.send(200, "application/json", output);
 }
 //==============================================================
 void notFound() { //when stuff after / is incorrect
   String s = "<meta http-equiv=\"refresh\" content=\"5; url='/'\" />"
              "<body> not a know page for ESP server </br> you will be directed automaticly or click button below to be redirected to main page</br>"
              "<br/><p>click to go back to main page:&nbsp <a href=\"/\"><button style=\"display: block;\">AP Main Page</button></a>";
-  server.send(200, "text/html", s); //Send web page
+  httpServer.send(200, "text/html", s); //Send web page
   //htmlOutput();//redirect back to main page (doesnt work)
 }
 // -----------------
@@ -410,7 +431,7 @@ html += "}";
 html += "</style>";
 html += "<body>";
 html += "<div class='flexContainer'>"
-"<div class='title greyText'>Kujawa Baby Baker 3000</div>"
+"<div class='title greyText'>Baby Baker 3002</div>"
 "<div class='subTitle'>Wifi Temperature Switch</div>"
 "<div class='subFlexBlock greenBorder'>";
 html += "<p class='textBlocks greyText'>ROOM STATUS:</p>";
@@ -468,7 +489,7 @@ html += "</div>";
 html += "</body>";
 html += "</html>";
 
- server.send(200, "text/html", html);
+ httpServer.send(200, "text/html", html);
 }
 
 // EEPROM commands =====================================================
@@ -501,3 +522,9 @@ String read_eeprom(int address) {
   }
   return data;
   }
+
+  /* other helpful commands
+  ESP.restart(); //reboot
+
+
+  */
