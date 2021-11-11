@@ -10,15 +10,27 @@
 #include <math.h>
 
 /*
-  lake temp sensor for dock up north
+  weather and lake temp sensor for dock up north
   
    pinMode(, OUTPUT/INPUT);pin# 1,3,15,13,12,14,2,0,4,5,16,9,10
    ADC0: analogRead(A0)
    interupt pins: D0-D8 = pin 16,5,4,
 
+  weather station wiring:
+  4 wire harnes:
+    Winddir:
+      black =>(jumper to A0) => 1k resistor => ground
+      green => 3.3v
+    windspeed:
+      red => ground, 0v
+      yellow => D5
+
+  2 wire harness - rain bucket
+  red => ground, 0v
+  green => D6
 */
 String version = "2.1";
-const bool debug = true;
+const bool debug = false;
 
 //const byte tempPin = 12;  //relay pin
 //byte relayState = LOW;     //pin status logic
@@ -97,7 +109,7 @@ float tempf = 0; // [temperature F]
 float rainin = 0; // [rain inches over the past hour)] -- the accumulated rainfall in the past 60 min
 volatile float dailyrainin = 0; // [rain inches so far today in local time]
 //float baromin = 30.03;// [barom in] - It's hard to calculate baromin locally, do this in the agent
-float pressure = 0;
+//float pressure = 0;
 //float dewptf; // [dewpoint F] - It's hard to calculate dewpoint locally, do this in the agent
 
 float batt_lvl = 11.8; //[analog value from 0 to 1023]
@@ -105,6 +117,8 @@ float light_lvl = 455; //[analog value from 0 to 1023]
 
 // volatiles are subject to modification by IRQs
 volatile unsigned long raintime, rainlast, raininterval, rain;
+//
+
 //=========================================================
 void setup() {
   //-----outputs-----------------
@@ -113,15 +127,14 @@ void setup() {
   pinMode(rainBucketPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(rainBucketPin), rainIRQ, FALLING);
   attachInterrupt(digitalPinToInterrupt(windspeedPin), wspeedIRQ, FALLING);
-  digitalWrite(LEDpin, HIGH);      //LED pin start state, start off, LOW = on
+  digitalWrite(LEDpin, HIGH); //LED pin start state, start off, LOW = on
   delay(10);
   //
   seconds = 0;
-  lastSecond = millis();  
-  interrupts(); // turn on interrupts
+  lastSecond = millis();    
   //-------serial------
   if(debug){
-    Serial.begin(9600);
+    Serial.begin(115200);
     delay(100);
   }  
   //read wifi creds from eeprom---------------------
@@ -145,17 +158,18 @@ void loop() {
   MDNS.update();
   if ((millis()-oldtime)>20000) {
     checkDS18B20();
+    calcWeather();
     oldtime = millis();
     if(debug){
       Serial.println("wifi status: "+ String(WiFi.status())); //3=connected
       Serial.println("ds18b20 temp: "+ String(ds18Temp));
+      printWeather();
     }
   }
-  if (millis() - lastSecond >= 1000){
+  if (millis() - lastSecond >= 1000){ //must be every second
     updateWeather();
   }
 }
-
 //==sub functions=================================
 //=====/wifi AP setup page===========================================
 void wifiCredentialUpdatePage() {
@@ -264,7 +278,17 @@ void checkDS18B20() {
 
 void jsonData(){
   String output = "{";
-  output += "\"LakeTemp\":\"" + String(ds18Temp, 2) +"\",";
+  output += "\"LakeTempF\":\"" + String(ds18Temp, 2) +"\",";
+  output += "\"windDirection\":\"" + String(winddir) +"\",";
+  output += "\"winddir_avg2m\":\"" + String(winddir_avg2m) +"\",";
+  output += "\"windspeedmph\":\"" + String(windspeedmph, 2) +"\",";
+  output += "\"windspdmph_avg2m\":\"" + String(windspdmph_avg2m, 2) +"\",";
+  output += "\"windgustmph\":\"" + String(windgustmph, 2) +"\",";
+  output += "\"windgustdirection\":\"" + String(windgustdir) +"\",";  
+  output += "\"windgustmph_10m\":\"" + String(windgustmph_10m, 2) +"\",";
+  output += "\"windgustdir_10m\":\"" + String(windgustdir_10m) +"\",";
+  output += "\"rainInches\":\"" + String(rainin, 2) +"\",";
+  output += "\"dailyRainInches\":\"" + String(dailyrainin, 2) +"\",";  
    if (digitalRead(LEDpin)){
     // 1 -> off
     output += "\"LED\":\"off\"";
@@ -278,8 +302,6 @@ void jsonData(){
 }
 // weather functions =================================================
 void updateWeather(){
-  //digitalWrite(STAT1, HIGH); //Blink stat LED
-
     lastSecond += 1000;
 
     //Take a speed and direction reading every second for 2 minute average
@@ -317,12 +339,7 @@ void updateWeather(){
 
       rainHour[minutes] = 0; //Zero out this minute's rainfall amount
       windgust_10m[minutes_10m] = 0; //Zero out this minute's gust
-    }
-
-    //Report all readings every second
-    if(debug){
-      printWeather();
-    }    
+    }  
 
     //digitalWrite(STAT1, LOW); //Turn off stat LED
 }
@@ -349,44 +366,35 @@ float get_wind_speed()
   return (windSpeed);
 }
 // ---------------------
-int get_wind_direction()
-{
+int get_wind_direction(){
   unsigned int adc;
-
   adc = analogRead(windDirPin); // get the current reading from the sensor
+  /*if(debug){
+    Serial.println("wind dir: "+String(adc));
+  }
+  */
 
-  // The following table is ADC readings for the wind direction sensor output, sorted from low to high.
-  // Each threshold is the midpoint between adjacent headings. The output is degrees for that ADC reading.
-  // Note that these are not in compass degree order! See Weather Meters datasheet for more information.
   // NEED TO DO MEASUREMENTS
-  // ADD 1K resitor inline
-  // try 3.3 volts resit input
-  if (adc < 380) return (113);
-  if (adc < 393) return (68);
-  if (adc < 414) return (90);
-  if (adc < 456) return (158);
-  if (adc < 508) return (135);
-  if (adc < 551) return (203);
-  if (adc < 615) return (180);
-  if (adc < 680) return (23);
-  if (adc < 746) return (45);
-  if (adc < 801) return (248);
-  if (adc < 833) return (225);
-  if (adc < 878) return (338);
-  if (adc < 913) return (0);
-  if (adc < 940) return (293);
-  if (adc < 967) return (315);
-  if (adc < 990) return (270);
+  // ADD 1K resitor inline, try 3.3 volts input
+  // N: 33, NE:117, E:545, SE:341, S: 223, SW:65, W:10, NW: 19  
+  if (adc < 12) return (270); //W  10
+  if (adc < 23) return (315); //NW  19
+  if (adc < 35) return (0); //N  33
+  if (adc < 70) return (225); //SW  65
+  if (adc < 125) return (45); //NE  117
+  if (adc < 245) return (180); //S 223
+  if (adc < 360) return (135); //SE 341 
+  if (adc < 650) return (90); // E 545
+  
   return (-1); // error, disconnected?
 }
 // ----------------
-void calcWeather()
-{
+void calcWeather(){
   //Calc winddir
   winddir = get_wind_direction();
 
   //Calc windspeed
-  //windspeedmph = get_wind_speed(); //This is calculated in the main loop on line 185
+  //windspeedmph = get_wind_speed(); //This is calculated in the main loop 
 
   //Calc windgustmph
   //Calc windgustdir
@@ -424,8 +432,6 @@ void calcWeather()
   if (winddir_avg2m >= 360) winddir_avg2m -= 360;
   if (winddir_avg2m < 0) winddir_avg2m += 360;
 
-  //Calc windgustmph_10m
-  //Calc windgustdir_10m
   //Find the largest windgust in the last 10 minutes
   windgustmph_10m = 0;
   windgustdir_10m = 0;
@@ -449,7 +455,7 @@ void calcWeather()
 // ------------------------
 //Interrupt routines (these are called by the hardware interrupts, not by the main code)
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-void rainIRQ()
+ICACHE_RAM_ATTR void rainIRQ()
 // Count rain gauge bucket tips as they occur
 // Activated by the magnet and reed switch in the rain gauge, attached to input D2
 {
@@ -464,23 +470,23 @@ void rainIRQ()
     rainlast = raintime; // set up for next event
   }
 }
-
-void wspeedIRQ()
+ICACHE_RAM_ATTR void wspeedIRQ(){
 // Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
-{
   if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
   {
     lastWindIRQ = millis(); //Grab the current time
     windClicks++; //There is 1.492MPH for each click per second.
+    if(debug){
+      Serial.println("click");
+    }
   }
 }
+
 // -------------------------
 void printWeather()
 {
-  calcWeather(); //Go calc all the various sensors
-
   Serial.println();
-  Serial.print("$,winddir=");
+  Serial.print("winddir=");
   Serial.print(winddir);
   Serial.print(",windspeedmph=");
   Serial.print(windspeedmph, 1);
@@ -496,22 +502,22 @@ void printWeather()
   Serial.print(windgustmph_10m, 1);
   Serial.print(",windgustdir_10m=");
   Serial.print(windgustdir_10m);
-  Serial.print(",humidity=");
-  Serial.print(humidity, 1);
-  Serial.print(",tempf=");
-  Serial.print(tempf, 1);
+  //Serial.print(",humidity=");
+  //Serial.print(humidity, 1);
+  //Serial.print(",tempf=");
+  //Serial.print(tempf, 1);
   Serial.print(",rainin=");
   Serial.print(rainin, 2);
   Serial.print(",dailyrainin=");
   Serial.print(dailyrainin, 2);
-  Serial.print(",pressure=");
-  Serial.print(pressure, 2);
-  Serial.print(",batt_lvl=");
-  Serial.print(batt_lvl, 2);
-  Serial.print(",light_lvl=");
-  Serial.print(light_lvl, 2);
-  Serial.print(",");
-  Serial.println("#");
+  //Serial.print(",pressure=");
+  //Serial.print(pressure, 2);
+  //Serial.print(",batt_lvl=");
+  //Serial.print(batt_lvl, 2);
+  //Serial.print(",light_lvl=");
+  //Serial.print(light_lvl, 2);
+  //Serial.print(",");
+  //Serial.println("#");
 
 }
 
@@ -545,7 +551,7 @@ void sendData(String dataX) {
   }
   
   //Serial.println("request sent");
-  /*
+
   while (httpsClient.connected()) {
     String line = httpsClient.readStringUntil('\n');
     if (line == "\r") {
@@ -565,7 +571,7 @@ void sendData(String dataX) {
   Serial.println("closing connection");
  
 }
- */
+*/
 
 //===main page builder=========================
 void mainPageHTMLpageBuilder() {
