@@ -29,7 +29,7 @@
   red => ground, 0v
   green => D6
 */
-String version = "2.1";
+String version = "2.2";
 const bool debug = false;
 
 //const byte tempPin = 12;  //relay pin
@@ -181,10 +181,10 @@ void wifiCredentialUpdatePage() {
   setuphtml += "</b></p>"
                "<form action=\"/input\" method=\"POST\">"
                " Wifi ssid :<br>"
-               " <input type=\"text\" name=\"wifi SSID\" value=\"enter wifi name\">"
+               " <input type=\"text\" name=\"wifi SSID\" value=\"\">"
                " <br>"
                " Wifi password:<br>"
-               " <input type=\"password\" name=\"password\" value=\"enter wifi password\">"
+               " <input type=\"password\" name=\"password\" value=\"\">"
                " <br><br>"
                " <input type=\"submit\" value=\"Submit\">"
                "</form> "
@@ -340,8 +340,6 @@ void updateWeather(){
       rainHour[minutes] = 0; //Zero out this minute's rainfall amount
       windgust_10m[minutes_10m] = 0; //Zero out this minute's gust
     }  
-
-    //digitalWrite(STAT1, LOW); //Turn off stat LED
 }
 
 //--------------------------
@@ -357,11 +355,6 @@ float get_wind_speed()
   lastWindCheck = millis();
 
   windSpeed *= 1.492; //4 * 1.492 = 5.968MPH
-
-  /* Serial.println();
-    Serial.print("Windspeed:");
-    Serial.println(windSpeed);
-  */
 
   return (windSpeed);
 }
@@ -387,6 +380,18 @@ int get_wind_direction(){
   if (adc < 650) return (90); // E 545
   
   return (-1); // error, disconnected?
+}
+String get_cardinal_dir(int dir){
+  if (dir < 22) return ("North"); 
+  if (dir < 67) return ("NorthEast"); 
+  if (dir < 112) return ("East"); 
+  if (dir < 157) return ("SouthEast"); 
+  if (dir < 202) return ("South");
+  if (dir < 247) return ("SouthWest"); 
+  if (dir < 292) return ("West"); 
+  if (dir < 337) return ("NorthWest"); 
+  if (dir <= 360) return ("North"); 
+  return ("Error");
 }
 // ----------------
 void calcWeather(){
@@ -525,7 +530,7 @@ void printWeather()
 // =======================================
 /*
 void sendData(String dataX) {
-  String message = "uploadData="+dataX+"&xkeyx=wottreng69&fileName=lakeTemp";
+  String message = "uploadData="+dataX+"&xkeyx=69&fileName=lakeTemp";
   String messageLength = String(message.length());
   //Your Domain name with URL path or IP address with path
   WiFiClientSecure httpsClient;
@@ -575,34 +580,179 @@ void sendData(String dataX) {
 
 //===main page builder=========================
 void mainPageHTMLpageBuilder() {
-  String htmlRes = "======================================</br>";
-  htmlRes += " <html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><meta http-equiv=\"refresh\" content=\"20; url='/'\"/></head>"  //<meta http-equiv=\"refresh\" content=\"5; url='/'\"/>
-             "<script type=\"text/JavaScript\"> function timeRefresh(timeoutPeriod) {setTimeout(\"location.reload(true);\", timeoutPeriod);} </script>"
-             " <h1>ESP8266 NodeMCU</h1><h3>Temp Monitor edition</h3><body><pre style=\"word-wrap: break-word;white-space: pre-wrap;\"></pre></body>"  //onLoad=\"JavaScript:timeRefresh(12000);\"
-             "DS18B20 output:</br>Temp: "
-             + String(ds18Temp, 2) + "F</br>";
-  htmlRes += "--------------------------</br>";
-  byte conStatus = WiFi.status();
-  if (conStatus == 0) {
-    htmlRes += "Wifi connection is Idle</br>";
-  } else if (conStatus == 3) {  //connected
-    htmlRes += "Connected to WiFi</br> Connected to AP:&nbsp <b>" + WIFI_SSID + "</b></br>local IP:&nbsp<b>" + WiFi.localIP().toString() + "</b></br>" + "Connection Strength: <b>"+ WiFi.RSSI() + " dbm</b>";
-  } else if (conStatus == 1) {  //not connected
-    htmlRes += "Not connected to internet</br> Can not connect to AP:&nbsp<b>" + WIFI_SSID + "</b></br>";
-  } else if (conStatus == 7){
-    htmlRes += "Disconnected from access point";
-  } else {
-     htmlRes += "<b>Connection Status: "+ String(conStatus) +"</b></br>";
-  }
-  //WL_IDLE_STATUS      = 0,WL_NO_SSID_AVAIL    = 1,WL_SCAN_COMPLETED   = 2,WL_CONNECTED        = 3,
-  //WL_CONNECT_FAILED   = 4,WL_CONNECTION_LOST  = 5,WL_DISCONNECTED     = 6
+String html = "<!DOCTYPE html>"
+"<html lang='en'>"
+"<head>"
+"<meta charset='UTF-8'>"
+"<title>Weather Station</title>"
+"<meta name='viewport' content='width=device-width, initial-scale=1'/>"
+"<meta http-equiv='refresh' content='20; url='/''  />"
+"</head>"
+"<style>"
+"body {"
+"position: relative;"
+"top: 0;"
+"left: 0;"
+"color: white;"
+"background-color: transparent;"
+"height: calc(100vh - 10px);"
+"width: calc(100vw - 10px);"
+"border: #ffffff solid 5px;"
+"border-radius: 20px;"
+"margin: 0;"
+"padding: 0;"
+"z-index: 0;"
+"}"
+".flexContainer {"
+"background-image: linear-gradient(180deg, #00008B, black);"
+"z-index: 1;"
+"position: relative;"
+"margin: 0;"
+"padding: 0;"
+"width: 100%;"
+"height: 100%;"
+"display: flex;"
+"text-align: center;"
+"align-items: center;"
+"align-content: center;"
+"flex-wrap: nowrap;"
+"flex-direction: column;"
+"overflow-y: scroll;"
+"font-weight: bold;"
+"}"
+".title {"
+"padding: 10px;"
+"font-size: x-large;"
+"}"
+".subTitle {"
+"padding: 5px;"
+"font-size: large;"
+"}"
+".subFlexBlock {"
+"z-index: 2;"
+"font-size: large;"
+"position: relative;"
+"left: 0;"
+"margin: 0;"
+"margin-bottom: 10px;"
+"padding: 10px;"
+"width: 100%;"
+"max-width: 360px;"
+"height: auto;"
+"display: flex;"
+"flex-direction: column;"
+"text-align: center;"
+"align-items: center;"
+"align-content: center;"
+"}"
+".greenBorder {"
+"background-color: black;"
+"color: white;"
+"width: 90%;"
+"border: #FAF0E6 solid 6px;"
+"border-radius: 20px;"
+"}"
+".whiteBorder {"
+"background-color: #818181;"
+"color: #18453B;"
+"width: 80%;"
+"border: #ffffff solid 6px;"
+"border-radius: 20px;"
+"}"
+".blackBorder {"
+"background-color: #18453B;"
+"color: white;"
+"width: 85%;"
+"border: #000000 solid 6px;"
+"border-radius: 20px;"
+"}"
+".textBlocks {"
+"font-size: large;"
+"text-align: center;"
+"align-content: center;"
+"align-items: center;"
+"padding: 2px;"
+"margin: 0;"
+"}"
+"button {"
+"margin: 0;"
+"font-size: large;"
+"padding: 5px 10px 5px 10px;"
+"color: #b4b4b4;"
+"background-color: black;"
+"border-radius: 10px;"
+"border: #18453B solid 4px;"
+"text-decoration: underline #b4b4b4;"
+"}"
+".greyText{"
+"color: #b4b4b4;"
+"}"
+"</style>"
+"<body>"
+"<div class='flexContainer'>"
+"<div class='title greyText'>LakeHouse Weather Station</div>"
+"<div id='date'></div>"
+"<script type='text/JavaScript' defer>"
+"let a = new Date();"
+"let b = String(a).split(' GMT')[0];"
+"document.getElementById('date').innerHTML = `${b}`;"
+"//console.log(b);"
+"</script>"
+"<div class='subFlexBlock greenBorder'>"
+"<p class='textBlocks greyText'>LAKE TEMP</p>"
+"<p class='textBlocks'>"+ String(ds18Temp, 2) +" F</p>"
+"</div>"
+"<div class='subFlexBlock greenBorder'>"
+"<p class='textBlocks greyText'>WIND</p>"
+"<p class='textBlocks'>Current Speed: "+ String(windspeedmph, 2) +" mph</p>"
+"<p class='textBlocks'>Average 2 min Speed: "+ String(windspdmph_avg2m, 2) +" mph</p>"
+"<p class='textBlocks'>Current Direction: "+ get_cardinal_dir(winddir) + ", "+ String(winddir) +"°</p>"
+"<p class='textBlocks'>Average 2 min Direction: "+ get_cardinal_dir(winddir_avg2m) + ", " + String(winddir_avg2m) +"°</p>"
+"<p class='textBlocks'>Gust Speed: "+ String(windgustmph, 2) +" mph</p>"
+"<p class='textBlocks'>Gust Direction: "+ get_cardinal_dir(windgustdir) + ", "+ String(windgustdir) +"°</p>"
+"<p class='textBlocks'>Average 10 min Gust Speed : "+ String(windgustmph_10m, 2) +" mph</p>"
+"<p class='textBlocks'>Average 10 min Gust Direction : "+ get_cardinal_dir(windgustdir_10m) + ", "+ String(windgustdir_10m) +"°</p>"
+"</div>"
+"<div class='subFlexBlock greenBorder'>"
+"<p class='textBlocks greyText'>RAIN</p>"
+"<p class='textBlocks'>Recent: "+ String(rainin, 2) +" inches</p>"
+"<p class='textBlocks'>Daily: " + String(dailyrainin, 2) + " inches</p>"
+"</div>"
+"</br></br></br></br></br></br></br></br>"
+"<div class='subFlexBlock greenBorder'>";
 
-  htmlRes += "</br>======================================</br>";
-  //add buttons and options
-  htmlRes += "<br/><p>to change wifi AP: <a href=\"APsetup\"><button style=\"display: block;\">Wifi Setup</button></a>"
-             "</br><p>Version "+version+"</p></html>";
-  //send html
-  httpServer.send(200, "text/html", htmlRes);  //send string to browser
+byte conStatus = WiFi.status();
+if (conStatus == 0) {
+    html += "Wifi connection is Idle</br>";
+  }
+  else if (conStatus == 3) {//connected
+  html += "Connected to AP:&nbsp <b>"+ WIFI_SSID +"</b></br>"
+          "local IP:&nbsp<b>" + WiFi.localIP().toString() + "</b></br>"
+          "Connection Strength: <b>" + String(WiFi.RSSI()) + " dbm</b>";
+  }
+  else if (conStatus == 1) {//not connected
+    html += "Not connected to internet</br> Can not connect to AP:&nbsp<b>" + WIFI_SSID +  "</b></br>";
+  }
+  else if (conStatus == 7){
+    html += "Disconnected from access point";
+  }
+  else {
+    html += "<b>Connection Status: "+ String(conStatus) +"</b></br>";
+  }
+
+
+html += "</div>"
+/*
+"<div class='subFlexBlock whiteBorder'>"
+"<span class='textBlocks'>Change Wifi Access Point: </span><a href='/APsetup'><button style='display: block;'>Wifi Setup</button></a>"
+"</div>"
+*/
+"<p>Version " +version+"</p>"
+"</div>"
+"</body>"
+"</html>";
+
+  httpServer.send(200, "text/html", html);  //send string to browser
 }
 
 // EEPROM commands =====================================================
