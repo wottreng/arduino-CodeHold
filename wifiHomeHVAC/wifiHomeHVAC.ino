@@ -1,7 +1,7 @@
 /*
-   pinMode(, OUTPUT/INPUT);pin# 1,3,15,13,12,14,2,0,4,5,16,9,10
-   ADC0: analogRead(A0)
-   interupt pins: D0-D8 = pin 16,5,4,
+mcu: esp8266 nodemcu
+4 relay breakout board
+DHT 22 temp sensor
 */
 #include <string.h>
 #include <WiFiClient.h>
