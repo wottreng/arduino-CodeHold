@@ -2,6 +2,7 @@
 mcu: esp8266 nodemcu
 4 relay breakout board
 DHT 22 temp sensor
+
 */
 #include <string.h>
 #include <WiFiClient.h>
@@ -57,9 +58,9 @@ byte heatOrACLoc = 40;
 byte targetTempLoc = 50;
 // TEMP SENSOR STUFF ------------------
 //relay temp vars
-float targetTemp = 67.0; 
-byte heatOrAC = 0;  // 0=off, 1=heat, 2=ac
-byte fanState = 0;  // 0=auto, 1=on
+float targetTemp = 67.0; //4 bytes
+byte heatOrAC = 0;  //0=off, 1=heat, 2=ac
+byte fanState = 0;  //0=auto, 1=on
 float tempBuffer = 0.5;
 float upperLimit ;
 float lowerLimit ;
@@ -69,7 +70,7 @@ float lowerLimit ;
 DHT dht(DHTPIN, DHTTYPE);
 float dhtTemp = 0.0;
 float dhtHumid = 0.0;
-float hif = 0.0;
+float heatIndex = 0.0;
 // 10K resistor from pin 2 (data) to pin 1 (power) of the sensor
 //misc
 const byte LEDpin = 16;  //onboard LED pin, LOW=ON
@@ -219,9 +220,7 @@ void checkDHT11() {
   int tempReceived = 0;
   while (tempReceived < 4){
     float t = dht.readTemperature(true);
-    delay(1000);
     float h = dht.readHumidity();
-    hif = dht.computeHeatIndex(dhtTemp, dhtHumid);
 
     if (isnan(h) || isnan(t)){
       if (tempReceived == 0){
@@ -234,6 +233,7 @@ void checkDHT11() {
       tempReceived = 10;
       dhtHumid = h;
       dhtTemp = t;
+      heatIndex = dht.computeHeatIndex();
     }
   }
 }
@@ -320,12 +320,13 @@ void jsonData(){
     "\"fanState\":\"" + String(fanState) +"\","
     "\"targetTemp\":\"" + String(targetTemp, 2) +"\","
     "\"dhtTemp\":\"" + String(dhtTemp, 2) +"\","
+    "\"heatIndex\":\"" + String(heatIndex, 2) +"\","
     "\"dhtHumid\":\"" + String(dhtHumid, 2) +"\","
     "\"relayPin0\":\"" + String(digitalRead(relayPin0)) +"\","
     "\"relayPin1\":\"" + String(digitalRead(relayPin1)) +"\","
     "\"relayPin2\":\"" + String(digitalRead(relayPin2)) +"\","
     "\"relayPin3\":\"" + String(digitalRead(relayPin3)) +"\","
-    "\"lastOff\":\"" + String(lastOff, HEX) +"\","
+    "\"lastOffsec\":\"" + String((millis() - lastOff)/1000,0) +"\","
     "\"time\":\"" + timeClient.getFormattedTime() +"\","
     "\"timeTempSchedule\":\"" + String(timeTempSchedule) +"\","
     "\"timeChange0\":\"" + timeChange0[0] +","+ timeChange0[1] +"\","
@@ -381,19 +382,15 @@ void argData(){
     if(httpServer.arg("timeChange0")!=""){
         String listValue = (httpServer.arg("timeChange0"));
         if (listValue.length() == 11){
-            String value0 = listValue.substring(0,5);
-            String value1 = listValue.substring(6,11);
-            timeChange0[0] = value0;
-            timeChange0[1] = value1;
+            timeChange0[0] = listValue.substring(0,5);
+            timeChange0[1] = listValue.substring(6,11);
         }
     }
     if(httpServer.arg("timeChange1")!=""){
         String listValue = (httpServer.arg("timeChange1"));
         if (listValue.length() == 11){
-            String value0 = listValue.substring(0,5);
-            String value1 = listValue.substring(6,11);
-            timeChange1[0] = value0;
-            timeChange1[1] = value1;
+            timeChange1[0] = listValue.substring(0,5);
+            timeChange1[1] = listValue.substring(6,11);
         }
     }
 
