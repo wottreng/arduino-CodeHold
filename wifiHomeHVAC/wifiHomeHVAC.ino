@@ -17,14 +17,19 @@ DHT 22 temp sensor
 #include <NTPClient.h>
 
 bool debug = false;
-const String version = "8.1";
+const String version = "8.2";
 /*
-version changes: no AP passwd, add NTP, add time dependent changes, api args
+version changes: no AP passwd, add NTP, add time dependent changes, api args, temp tracking
 */
+// temp history tracking
+bool historyTracking = true;
+float tempHistory[100] = {}; // 100 vars of 4 bytes
+char tempHistoryTime[100][6];
 //
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "north-america.pool.ntp.org", -18000, 60000);
 bool timeTempSchedule = false;
+int historyIndex = 0;
 String timeChange0[] = {"06:00","68.00"};
 String timeChange1[] = {"22:00","66.00"};
 //
@@ -77,6 +82,7 @@ const byte LEDpin = 16;  //onboard LED pin, LOW=ON
 // timer
 unsigned long sensorCheckTime = 0;
 unsigned long scheduleCheckTime = 0;
+unsigned long historyCheckTime = 0;
 unsigned long lastOff = 0;
 //=========================================================
 void setup() {
@@ -111,33 +117,55 @@ void setup() {
 
 //====MAIN LOOP==============================================
 void loop() {
-  httpServer.handleClient();
-  MDNS.update();
-  if(WiFi.getMode() == 1) timeClient.update();
-  if ((millis() - sensorCheckTime) > 30000) {
-    checkDHT11();
-    manageRelays();      
-    sensorCheckTime = millis();
-  }
-  if ((millis() - scheduleCheckTime) > 58000 && timeTempSchedule) {
-    String time = (timeClient.getFormattedTime()).substring(0,5);
-    //String hour = time.substring(0,2);
-    //String minute = time.substring(3,2);
-    if(time == timeChange0[0]){
-        targetTemp = timeChange0[1].toFloat();
-        updateTempLimits();
+    httpServer.handleClient();
+    MDNS.update();
+    if(WiFi.getMode() == 1) timeClient.update();
+
+    if ((millis() - sensorCheckTime) > 30000) {
+        checkDHT11();
+        manageRelays();      
+        sensorCheckTime = millis();
     }
-    if(time == timeChange1[0]){
-        targetTemp = timeChange1[1].toFloat();
-        updateTempLimits();
+    if (timeTempSchedule && (millis() - scheduleCheckTime) > 58000) {
+        String time = (timeClient.getFormattedTime()).substring(0,5);
+        //String hour = time.substring(0,2);
+        //String minute = time.substring(3,2);
+        if(time == timeChange0[0]){
+            targetTemp = timeChange0[1].toFloat();
+            updateTempLimits();
+            writeToEEPROM(String(targetTemp), targetTempLoc);
+        }
+        if(time == timeChange1[0]){
+            targetTemp = timeChange1[1].toFloat();
+            updateTempLimits();
+            writeToEEPROM(String(targetTemp), targetTempLoc);
+        }
+        scheduleCheckTime = millis();
     }
-    scheduleCheckTime = millis();
-  }
-  delay(200);
+    if (historyTracking && (millis() - historyCheckTime) > 300000) { // 5 min
+        updateTempHistory();
+        historyCheckTime = millis();
+    }
+    delay(200);
 }
 // ===============================================
 //==sub functions=================================
-
+// update history
+void updateTempHistory(){
+    tempHistory[historyIndex] = dhtTemp;
+    timeClient.getFormattedTime().substring(0,5).toCharArray(tempHistoryTime[historyIndex],6);
+    historyIndex ++;
+    if (historyIndex == (sizeof(tempHistoryTime)/sizeof(tempHistoryTime[0]))) historyIndex = 0;
+}
+//
+void getTempHistory(){
+    String timeStamps="";
+    for(int i=0;i<historyIndex;i++){
+        timeStamps += "{" + String(tempHistoryTime[i]) + "," + String(tempHistory[i]) + "}";        
+    }
+    //return timeStamps;
+    httpServer.send(200, "text/html", timeStamps);
+}
 //control relays
 void manageRelays() {
     //relay0=fan,relay1=heat,relay2=ac,relay3=aux
@@ -315,6 +343,7 @@ void changeConfig() {
 }
 // api variable output
 void jsonData(){
+    unsigned long lastOffsec = (millis() - lastOff)/1000;
     String output = "{"
     "\"heatOrAC\":\"" + String(heatOrAC) +"\","
     "\"fanState\":\"" + String(fanState) +"\","
@@ -326,7 +355,7 @@ void jsonData(){
     "\"relayPin1\":\"" + String(digitalRead(relayPin1)) +"\","
     "\"relayPin2\":\"" + String(digitalRead(relayPin2)) +"\","
     "\"relayPin3\":\"" + String(digitalRead(relayPin3)) +"\","
-    "\"lastOffsec\":\"" + String((millis() - lastOff)/1000,0) +"\","
+    "\"lastOffsec\":\"" + String(lastOffsec) +"\","
     "\"time\":\"" + timeClient.getFormattedTime() +"\","
     "\"timeTempSchedule\":\"" + String(timeTempSchedule) +"\","
     "\"timeChange0\":\"" + timeChange0[0] +","+ timeChange0[1] +"\","
@@ -366,8 +395,8 @@ void argData(){
         float value = (httpServer.arg("targetTemp")).toFloat();
         if (60.0 <= value <= 75.0) targetTemp = value;
         else targetTemp = 69.00;
-        writeToEEPROM(String(targetTemp), targetTempLoc);
         updateTempLimits();
+        writeToEEPROM(String(targetTemp), targetTempLoc);        
     } 
     if(httpServer.arg("fanState")!=""){
         byte value = (httpServer.arg("fanState")).toInt();
@@ -433,12 +462,12 @@ void connectWifi() {
     httpServer.on("/input", HTTP_POST, changeAP);
     httpServer.on("/tempRelaySetup", HTTP_GET, tempRelaySetup);
     httpServer.on("/relaySetup", HTTP_POST, changeConfig);
-    httpServer.on("/relay0", HTTP_GET, relay0);
-    httpServer.on("/relay1", HTTP_GET, relay1);
-    httpServer.on("/relay2", HTTP_GET, relay2);
-    httpServer.on("/relay3", HTTP_GET, relay3);
+    //httpServer.on("/relay0", HTTP_GET, relay0);
+    //httpServer.on("/relay1", HTTP_GET, relay1);
+    //httpServer.on("/relay2", HTTP_GET, relay2);
+    //httpServer.on("/relay3", HTTP_GET, relay3);
     httpServer.on("/api0", HTTP_GET, argData);
-    //httpServer.on("/api1", HTTP_GET, argData);
+    httpServer.on("/history", HTTP_GET, getTempHistory);
     httpUpdater.setup(&httpServer);
     httpServer.begin();
     MDNS.addService("http", "tcp", 80);
@@ -513,7 +542,7 @@ void mainPageBuilder() {
                "<br/><p>to change wifi AP: <a href=\"APsetup\"><button style=\"display: block;\">Wifi Setup</button></a></p>"
                "<p>Version "+version+"</p></html>";
     //send html
-    httpServer.send(200, "text/html", htmlRes);  //send string to browser
+    httpServer.send(200, "text/html", htmlRes);
 }
 // EEPROM commands =====================================================
 void writeToEEPROM(String data,int address){
