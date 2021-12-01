@@ -2,7 +2,6 @@
 mcu: esp8266 nodemcu
 4 relay breakout board
 DHT 22 temp sensor
-
 */
 #include <string.h>
 #include <WiFiClient.h>
@@ -17,21 +16,30 @@ DHT 22 temp sensor
 #include <NTPClient.h>
 
 bool debug = false;
-const String version = "8.2";
+const String version = "9.0";
 /*
-version changes: no AP passwd, add NTP, add time dependent changes, api args, temp tracking
+version changes: graph temp history, duty cycle
 */
+//duty cycle
+byte dutyCycle = 0;
 // temp history tracking
 bool historyTracking = true;
-float tempHistory[100] = {}; // 100 vars of 4 bytes
-char tempHistoryTime[100][6];
+float tempHistory[200] = {}; // 200 vars of 4 bytes
+char tempHistoryTime[200][6]; // 200 vars of 6 bytes
+// time between states
+unsigned long timeOff[100] = {};
+unsigned long timeOn[100] = {};
+unsigned long lastOff = 0;
+byte timeOffIndex = 0;
+unsigned long lastOn = 0;
+byte timeOnIndex = 0;
 //
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "north-america.pool.ntp.org", -18000, 60000);
-bool timeTempSchedule = false;
+bool timeTempSchedule = true;
 int historyIndex = 0;
-String timeChange0[] = {"06:00","68.00"};
-String timeChange1[] = {"22:00","66.00"};
+String timeChange0[] = {"07:00","67.00"};
+String timeChange1[] = {"21:00","65.00"};
 //
 ESP8266WebServer httpServer(80);  //listens for incoming tcp traffic
 ESP8266HTTPUpdateServer httpUpdater;
@@ -83,7 +91,6 @@ const byte LEDpin = 16;  //onboard LED pin, LOW=ON
 unsigned long sensorCheckTime = 0;
 unsigned long scheduleCheckTime = 0;
 unsigned long historyCheckTime = 0;
-unsigned long lastOff = 0;
 //=========================================================
 void setup() {
     pinMode(LEDpin, OUTPUT);
@@ -121,12 +128,12 @@ void loop() {
     MDNS.update();
     if(WiFi.getMode() == 1) timeClient.update();
 
-    if ((millis() - sensorCheckTime) > 30000) {
+    if ((millis() - sensorCheckTime) > 30000) { // every 30 sec
         checkDHT11();
         manageRelays();      
         sensorCheckTime = millis();
     }
-    if (timeTempSchedule && (millis() - scheduleCheckTime) > 58000) {
+    if (timeTempSchedule && (millis() - scheduleCheckTime) > 58000) { // every 58 sec
         String time = (timeClient.getFormattedTime()).substring(0,5);
         //String hour = time.substring(0,2);
         //String minute = time.substring(3,2);
@@ -146,10 +153,25 @@ void loop() {
         updateTempHistory();
         historyCheckTime = millis();
     }
-    delay(200);
+    delay(100);
 }
 // ===============================================
 //==sub functions=================================
+//duty cycle
+void getDutyCycle(){
+    
+    if(timeOnIndex > 0 && timeOffIndex > 0){
+        unsigned long timeOnTotal = 0;
+        for(int i=0;i<timeOnIndex;i++){
+        timeOnTotal += timeOn[i];        
+        }
+        unsigned long timeOffTotal = 0;
+        for(int i=0;i<timeOffIndex;i++){
+            timeOffTotal += timeOff[i];        
+        }
+        dutyCycle = 100 * (timeOnTotal / (timeOnTotal + timeOffTotal));
+    }else dutyCycle = 0;    
+}
 // update history
 void updateTempHistory(){
     tempHistory[historyIndex] = dhtTemp;
@@ -158,13 +180,59 @@ void updateTempHistory(){
     if (historyIndex == (sizeof(tempHistoryTime)/sizeof(tempHistoryTime[0]))) historyIndex = 0;
 }
 //
-void getTempHistory(){
-    String timeStamps="";
+void getHistory(){
+    // graph data
+    String time = "";
     for(int i=0;i<historyIndex;i++){
-        timeStamps += "{" + String(tempHistoryTime[i]) + "," + String(tempHistory[i]) + "}";        
+        if(i == (historyIndex-1)) time += "\"" + String(tempHistoryTime[i]) + "\"";
+        else time += "\""+String(tempHistoryTime[i]) + "\",";        
     }
+    String temp = "";
+    for(int i=0;i<historyIndex;i++){
+        if(i == (historyIndex-1)) temp += String(tempHistory[i]);
+        else temp += String(tempHistory[i]) + ",";        
+    }
+    // data 
+    String res = "<h3>timeTempHistory:</h3><p>";
+    for(int i=0;i<historyIndex;i++){
+        res += "{" + String(tempHistoryTime[i]) + "," + String(tempHistory[i]) + "}";        
+    }
+    res += "</p><h3>timeOn:</h3><p>";
+    for(int i=0;i<timeOnIndex;i++){
+        res += "{" + String(timeOn[i]) + "}";        
+    }
+    res += "</p><h3>timeOff:</h3><p>";
+    for(int i=0;i<timeOffIndex;i++){
+        res += "{" + String(timeOff[i]) + "}";        
+    }
+    res += "</p>";
+    //
+   String htmlres = " <!DOCTYPE html>"
+    "<html>"
+    "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><meta http-equiv=\"refresh\" content=\"100; url='/history'\"/></head>"
+    "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js\"></script>"
+    "<body>"
+    "<canvas id=\"myChart\" style=\"width:100%;max-width:600px\"></canvas>"
+    "<script>"
+    "var xValues = ["+time+"];"
+    "new Chart(\"myChart\", {"
+    "  type: \"line\","
+    "  data: {"
+    "  labels: xValues,"
+        "datasets: [{ "
+        "data: ["+temp+"],"
+        "borderColor: \"red\","
+        "fill: false"
+    "  }]"
+    " },"
+    "options: {"
+        "legend: {display: false}"
+    "}"
+    "});"
+    "</script>";
+htmlres += res;
     //return timeStamps;
-    httpServer.send(200, "text/html", timeStamps);
+    httpServer.send(200, "text/html", htmlres);
 }
 //control relays
 void manageRelays() {
@@ -185,15 +253,22 @@ void manageRelays() {
         }
         // manage heat relay ---
         if (dhtTemp < lowerLimit) {
-            //turn relay on
+            //turn heat relay on
             if (digitalRead(relayPin1) == HIGH & millis() - lastOff > 300000) { //5 min
                 digitalWrite(relayPin1, LOW);
+                lastOn = millis();
+                timeOff[timeOffIndex] = (lastOn - lastOff)/1000;
+                timeOffIndex ++;
+                if (timeOffIndex == (sizeof(timeOff)/sizeof(timeOff[0]))) timeOffIndex = 0;
             }
         } else if (dhtTemp > upperLimit) {
-            //turn relay off
+            //turn heat relay off
             if (digitalRead(relayPin1) == LOW) {
                 digitalWrite(relayPin1, HIGH);
                 lastOff = millis();
+                timeOn[timeOnIndex] = (lastOff - lastOn)/1000;
+                timeOnIndex ++;
+                if (timeOnIndex == (sizeof(timeOn)/sizeof(timeOn[0]))) timeOnIndex = 0;
             }
         } else {
             //do nothing
@@ -228,7 +303,7 @@ void manageRelays() {
           heatOrAC = 0;
       }
     } else {  //ac and heat are off
-        heatOrAC = 0; //error catch in HVAC setup
+        if(heatOrAC != 0) heatOrAC = 0; //error catch in HVAC setup
         acAndHeatoff();
         delay(100);
     }
@@ -343,6 +418,7 @@ void changeConfig() {
 }
 // api variable output
 void jsonData(){
+    getDutyCycle();
     unsigned long lastOffsec = (millis() - lastOff)/1000;
     String output = "{"
     "\"heatOrAC\":\"" + String(heatOrAC) +"\","
@@ -356,11 +432,13 @@ void jsonData(){
     "\"relayPin2\":\"" + String(digitalRead(relayPin2)) +"\","
     "\"relayPin3\":\"" + String(digitalRead(relayPin3)) +"\","
     "\"lastOffsec\":\"" + String(lastOffsec) +"\","
+    "\"dutyCycle_%\":\"" + String(dutyCycle) +"\","
     "\"time\":\"" + timeClient.getFormattedTime() +"\","
     "\"timeTempSchedule\":\"" + String(timeTempSchedule) +"\","
     "\"timeChange0\":\"" + timeChange0[0] +","+ timeChange0[1] +"\","
     "\"timeChange1\":\"" + timeChange1[0] +","+ timeChange1[1] +"\","
-    //output += "\"hour\":\"" + time.substring(0,2) +"\",";
+    "\"historyTracking\":\"" + String(historyTracking) +"\","
+
     "\"Wifi_SSID\":\"" + WIFI_SSID +"\",";
     byte mode = WiFi.getMode();
     if (mode = 1) output += "\"Wifi_Mode\":\"Station\",";
@@ -409,7 +487,7 @@ void argData(){
         else timeTempSchedule = false;
     }
     if(httpServer.arg("timeChange0")!=""){
-        String listValue = (httpServer.arg("timeChange0"));
+        String listValue = httpServer.arg("timeChange0");
         if (listValue.length() == 11){
             timeChange0[0] = listValue.substring(0,5);
             timeChange0[1] = listValue.substring(6,11);
@@ -420,6 +498,12 @@ void argData(){
         if (listValue.length() == 11){
             timeChange1[0] = listValue.substring(0,5);
             timeChange1[1] = listValue.substring(6,11);
+        }
+    }    
+    if(httpServer.arg("historyTracking")!=""){
+        byte value = (httpServer.arg("historyTracking")).toInt();
+        if (value == 0 || value == 1){
+            historyTracking = value;
         }
     }
 
@@ -432,7 +516,7 @@ void connectWifi() {
     WiFi.mode(WIFI_STA);
     WiFi.hostname(hostName.c_str());
     WiFi.begin(WIFI_SSID, WIFI_PASS);
-    const byte maxTry = 10;//try this many times to connect
+    const byte maxTry = 20; //try this many times to connect
     byte x = 0;
     while (x <= maxTry) {
         delay(500);
@@ -467,7 +551,8 @@ void connectWifi() {
     //httpServer.on("/relay2", HTTP_GET, relay2);
     //httpServer.on("/relay3", HTTP_GET, relay3);
     httpServer.on("/api0", HTTP_GET, argData);
-    httpServer.on("/history", HTTP_GET, getTempHistory);
+    httpServer.on("/history", HTTP_GET, getHistory);
+    httpServer.on("/reboot", HTTP_GET, reboot);
     httpUpdater.setup(&httpServer);
     httpServer.begin();
     MDNS.addService("http", "tcp", 80);
@@ -643,7 +728,7 @@ upperLimit = targetTemp + tempBuffer;
 lowerLimit = targetTemp - tempBuffer;
 }
 
-  /* other helpful commands
-  ESP.restart(); //reboot
-
-  */
+void reboot(){
+    ESP.restart(); //reboot
+}
+  
