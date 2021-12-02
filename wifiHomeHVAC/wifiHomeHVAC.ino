@@ -16,12 +16,13 @@ DHT 22 temp sensor
 #include <NTPClient.h>
 
 bool debug = false;
-const String version = "9.0";
+const String version = "9.2";
 /*
-version changes: graph temp history, duty cycle
+version changes: graph temp history, duty cycle, average temp
 */
 //duty cycle
 byte dutyCycle = 0;
+float average_temp = 0;
 // temp history tracking
 bool historyTracking = true;
 float tempHistory[200] = {}; // 200 vars of 4 bytes
@@ -149,7 +150,7 @@ void loop() {
         }
         scheduleCheckTime = millis();
     }
-    if (historyTracking && (millis() - historyCheckTime) > 300000) { // 5 min
+    if (historyTracking && (millis() - historyCheckTime) > 180000) { // 3 min
         updateTempHistory();
         historyCheckTime = millis();
     }
@@ -157,19 +158,28 @@ void loop() {
 }
 // ===============================================
 //==sub functions=================================
+//get average temperature
+void calcAverageTemp(){
+    float totalTemp = 0;
+    if (historyIndex > 0){
+        for(byte i=0;i<historyIndex;i++){ //index is always 1 greater than array data length
+            totalTemp += tempHistory[i];
+        }   
+        average_temp = totalTemp / historyIndex;
+    }else average_temp = 0;
+}
 //duty cycle
-void getDutyCycle(){
-    
+void getDutyCycle(){    
     if(timeOnIndex > 0 && timeOffIndex > 0){
         unsigned long timeOnTotal = 0;
         for(int i=0;i<timeOnIndex;i++){
         timeOnTotal += timeOn[i];        
         }
         unsigned long timeOffTotal = 0;
-        for(int i=0;i<timeOffIndex;i++){
+        for(int i=0;i<timeOnIndex;i++){ // timeonIndex used so that arrays have the same length
             timeOffTotal += timeOff[i];        
         }
-        dutyCycle = 100 * (timeOnTotal / (timeOnTotal + timeOffTotal));
+        dutyCycle = 100 * (float(timeOnTotal) / (timeOnTotal + timeOffTotal));
     }else dutyCycle = 0;    
 }
 // update history
@@ -181,6 +191,8 @@ void updateTempHistory(){
 }
 //
 void getHistory(){
+    calcAverageTemp();
+    getDutyCycle();
     // graph data
     String time = "";
     for(int i=0;i<historyIndex;i++){
@@ -205,14 +217,21 @@ void getHistory(){
     for(int i=0;i<timeOffIndex;i++){
         res += "{" + String(timeOff[i]) + "}";        
     }
-    res += "</p>";
+    res += "</p><p>Average Temp: "+String(average_temp)+"</p><p>Duty Cycle: "+String(dutyCycle)+"</p>";
     //
    String htmlres = " <!DOCTYPE html>"
     "<html>"
     "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><meta http-equiv=\"refresh\" content=\"100; url='/history'\"/></head>"
     "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js\"></script>"
+    "<style>"
+        "body {"
+        "display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center;  text-align:center;  align-content: center;  width: 100vw;  height: 100vh;  padding: 0;  margin: 0;  background-color: #2F4F4F;  color: white;   font-size: large;"
+        "}"
+    "</style>"
     "<body>"
-    "<canvas id=\"myChart\" style=\"width:100%;max-width:600px\"></canvas>"
+    "<div style=\"background-color: #FFFAF0;width: 100%; max-width:600px;padding:10px;\">"
+        "<canvas id=\"myChart\" style=\"width:100%;max-width:600px\"></canvas>"
+    "</div>"
     "<script>"
     "var xValues = ["+time+"];"
     "new Chart(\"myChart\", {"
@@ -226,7 +245,30 @@ void getHistory(){
     "  }]"
     " },"
     "options: {"
-        "legend: {display: false}"
+        "legend: {display: false},"
+       " responsive: true,"
+        "scales: {"
+        "xAxes: [ {"
+            "display: true,"
+            "scaleLabel: {"
+            "display: true,"
+            "labelString: 'Time'"
+            "},"
+            "ticks: {"
+            "major: {"
+                "fontStyle: 'bold',"
+                "fontColor: '#FF0000'"
+            " }"
+            "}"
+        "} ],"
+        "yAxes: [ {"
+            "display: true,"
+            "scaleLabel: {"
+            "display: true,"
+            "labelString: 'Temp'"
+            "}"
+        "} ]"
+        "}"
     "}"
     "});"
     "</script>";
@@ -418,6 +460,7 @@ void changeConfig() {
 }
 // api variable output
 void jsonData(){
+    calcAverageTemp();
     getDutyCycle();
     unsigned long lastOffsec = (millis() - lastOff)/1000;
     String output = "{"
@@ -433,6 +476,7 @@ void jsonData(){
     "\"relayPin3\":\"" + String(digitalRead(relayPin3)) +"\","
     "\"lastOffsec\":\"" + String(lastOffsec) +"\","
     "\"dutyCycle_%\":\"" + String(dutyCycle) +"\","
+    "\"average_temp\":\"" + String(average_temp) +"\","
     "\"time\":\"" + timeClient.getFormattedTime() +"\","
     "\"timeTempSchedule\":\"" + String(timeTempSchedule) +"\","
     "\"timeChange0\":\"" + timeChange0[0] +","+ timeChange0[1] +"\","
